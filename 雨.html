@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>别 再 靠 近 了</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #000;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #e7e9ea;
+    overflow-y: auto;
+  }
+
+  body::-webkit-scrollbar { width: 0; }
+  body { scrollbar-width: none; }
+
+  /* ---------- 最底层：雨丝画布 ---------- */
+  #rain {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.5; /* 整体很淡，不抢主体 */
+  }
+
+  /* 极淡呼吸光，在雨之上、内容之下 */
+  .breath {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: radial-gradient(
+      ellipse at 50% 30%,
+      rgba(60, 70, 90, 0.10) 0%,
+      rgba(0, 0, 0, 0) 60%
+    );
+    animation: breathe 9s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+  }
+
+  /* 顶部标题栏 */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid #1c1f22;
+    padding: 0.9rem 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    animation: fadeIn 1.2s ease 0.2s both;
+  }
+  .topbar .back { font-size: 1.2rem; opacity: 0.85; }
+  .topbar .title { font-size: 1.05rem; font-weight: 700; }
+  .topbar .spacer { flex: 1; }
+  .topbar .icon { font-size: 1.05rem; opacity: 0.6; }
+
+  /* 时间线 */
+  .timeline {
+    position: relative;
+    z-index: 2;
+    max-width: 620px;
+    margin: 0 auto;
+    padding-bottom: 12rem;
+  }
+
+  /* 单条推文 */
+  .tweet {
+    display: flex;
+    gap: 0.85rem;
+    padding: 1.1rem 1.2rem;
+    border-bottom: 1px solid #1c1f22;
+    opacity: 0;
+    animation: fadeUp 1.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    /* 让雨丝不挡文字，加一点半透明背景 */
+    background: rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(1px);
+  }
+
+  @keyframes fadeUp {
+    0%   { opacity: 0; transform: translateY(14px); filter: blur(4px); }
+    100% { opacity: 1; transform: translateY(0);    filter: blur(0); }
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* 头像 */
+  .avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #2a2e33;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .avatar svg { width: 100%; height: 100%; }
+
+  .main { flex: 1; min-width: 0; }
+
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.9rem;
+    margin-bottom: 0.15rem;
+    flex-wrap: wrap;
+  }
+  .name { font-weight: 700; color: #e7e9ea; }
+  .handle { color: #71767b; }
+  .dot { color: #71767b; }
+  .time { color: #71767b; }
+
+  .replying {
+    font-size: 0.8rem;
+    color: #71767b;
+    margin-bottom: 0.4rem;
+  }
+  .replying span { color: #4a9eff; }
+
+  .body {
+    font-size: 1.02rem;
+    line-height: 1.5;
+    color: #e7e9ea;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .tweet.reply .body { color: #d0d3d6; }
+  .tweet.highlight .body {
+    text-shadow: 0 0 22px rgba(180, 200, 230, 0.35);
+  }
+
+  /* 互动栏 */
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    max-width: 380px;
+    margin-top: 0.7rem;
+    color: #71767b;
+    font-size: 0.82rem;
+  }
+  .action {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease, transform 0.15s ease;
+  }
+  .action:hover { color: #4a9eff; }
+  .action.like:hover { color: #f91880; }
+  .action.liked { color: #f91880; }
+  .action .ico {
+    display: inline-block;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .action.pulse .ico { animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.5); }
+    70%  { transform: scale(0.9); }
+    100% { transform: scale(1); }
+  }
+
+  /* 底部发布栏 */
+  .composer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid #1c1f22;
+    padding: 0.8rem 1.2rem calc(0.8rem + env(safe-area-inset-bottom));
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    animation: fadeIn 1.2s ease 1.6s both;
+  }
+  .composer .avatar { width: 38px; height: 38px; }
+  .composer input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #e7e9ea;
+    font-size: 1rem;
+    font-family: inherit;
+    padding: 0.4rem 0;
+  }
+  .composer input::placeholder { color: #4a4f55; }
+  .composer button {
+    background: #e7e9ea;
+    color: #000;
+    border: none;
+    border-radius: 999px;
+    padding: 0.5rem 1.1rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 0.2s ease, transform 0.15s ease;
+  }
+  .composer button:disabled { opacity: 0.25; cursor: not-allowed; }
+  .composer button:not(:disabled):hover { transform: scale(1.04); }
+  .composer button:not(:disabled):active { transform: scale(0.96); }
+
+  .sign {
+    position: fixed;
+    bottom: 4.6rem;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.7rem;
+    letter-spacing: 0.55em;
+    text-indent: 0.55em;
+    color: #2b3035;
+    z-index: 5;
+    pointer-events: none;
+    animation: fadeIn 2s ease 8s both;
+  }
+</style>
+</head>
+<body>
+
+<!-- 最底层雨丝 -->
+<canvas id="rain"></canvas>
+<div class="breath"></div>
+
+<div class="topbar">
+  <div class="back">←</div>
+  <div class="title">推文</div>
+  <div class="spacer"></div>
+  <div class="icon">⇅</div>
+</div>
+
+<div class="timeline" id="timeline">
+
+  <div class="tweet" style="animation-delay: 0.4s;" data-base-like="1326" data-base-rt="22" data-base-reply="551">
+    <div class="avatar">
+      <svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#3a3f45"/><circle cx="22" cy="17" r="8" fill="#5a6068"/><ellipse cx="22" cy="38" rx="14" ry="10" fill="#5a6068"/></svg>
+    </div>
+    <div class="main">
+      <div class="head">
+        <span class="name">kk</span>
+        <span class="handle">@name</span>
+        <span class="dot">·</span>
+        <span class="time">3月20日</span>
+      </div>
+      <div class="body">别再靠近了。</div>
+      <div class="actions">
+        <div class="action reply"><span class="ico">💬</span><span class="num">551</span></div>
+        <div class="action rt"><span class="ico">🔁</span><span class="num">22</span></div>
+        <div class="action like"><span class="ico">♡</span><span class="num">1,326</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tweet reply" style="animation-delay: 1.4s;" data-base-like="58" data-base-rt="2" data-base-reply="0">
+    <div class="avatar">
+      <svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#2c3136"/><circle cx="22" cy="17" r="8" fill="#4a5058"/><ellipse cx="22" cy="38" rx="14" ry="10" fill="#4a5058"/></svg>
+    </div>
+    <div class="main">
+      <div class="replying">回复 <span>@name</span></div>
+      <div class="head">
+        <span class="name">Echo</span>
+        <span class="handle">@name</span>
+        <span class="dot">·</span>
+        <span class="time">9分钟</span>
+      </div>
+      <div class="body">可我早就站在你世界边缘很久了</div>
+      <div class="actions">
+        <div class="action reply"><span class="ico">💬</span><span class="num">0</span></div>
+        <div class="action rt"><span class="ico">🔁</span><span class="num">2</span></div>
+        <div class="action like"><span class="ico">♡</span><span class="num">58</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tweet" style="animation-delay: 2.6s;" data-base-like="295000" data-base-rt="8760" data-base-reply="55000">
+    <div class="avatar">
+      <svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#3a3f45"/><circle cx="22" cy="17" r="8" fill="#5a6068"/><ellipse cx="22" cy="38" rx="14" ry="10" fill="#5a6068"/></svg>
+    </div>
+    <div class="main">
+      <div class="head">
+        <span class="name">Evil</span>
+        <span class="handle">@ovo</span>
+        <span class="dot">·</span>
+        <span class="time">5月6日</span>
+      </div>
+      <div class="body">如果有一天我查无音讯了，你会为了我找遍全世界吗？</div>
+      <div class="actions">
+        <div class="action reply"><span class="ico">💬</span><span class="num">5.5万</span></div>
+        <div class="action rt"><span class="ico">🔁</span><span class="num">8,760</span></div>
+        <div class="action like"><span class="ico">♡</span><span class="num">29.5万</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tweet reply highlight" style="animation-delay: 3.6s;" data-base-like="52700" data-base-rt="69400" data-base-reply="865">
+    <div class="avatar">
+      <svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#2c3136"/><circle cx="22" cy="17" r="8" fill="#4a5058"/><ellipse cx="22" cy="38" rx="14" ry="10" fill="#4a5058"/></svg>
+    </div>
+    <div class="main">
+      <div class="replying">回复 <span>@ovo</span></div>
+      <div class="head">
+        <span class="name">Sakit</span>
+        <span class="handle">@ovo</span>
+        <span class="dot">·</span>
+        <span class="time">6分钟</span>
+      </div>
+      <div class="body">你都查无音讯了，我哪来的全世界。</div>
+      <div class="actions">
+        <div class="action reply"><span class="ico">💬</span><span class="num">865</span></div>
+        <div class="action rt"><span class="ico">🔁</span><span class="num">6.94万</span></div>
+        <div class="action like"><span class="ico">♡</span><span class="num">5.27万</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="sign">— 我 从 不 躲 —</div>
+
+<div class="composer">
+  <div class="avatar">
+    <svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#2c3136"/><circle cx="22" cy="17" r="8" fill="#4a5058"/><ellipse cx="22" cy="38" rx="14" ry="10" fill="#4a5058"/></svg>
+  </div>
+  <input id="input" type="text" placeholder="发布你的回复" maxlength="120">
+  <button id="send" disabled>回复</button>
+</div>
+
+<script>
+  /* ================= 雨丝特效 ================= */
+  const rainCanvas = document.getElementById('rain');
+  const rctx = rainCanvas.getContext('2d');
+  let RW, RH, raindrops;
+
+  function initRain() {
+    RW = rainCanvas.width = window.innerWidth;
+    RH = rainCanvas.height = window.innerHeight;
+    // 密度：每 16000 像素一颗，很稀
+    const count = Math.floor((RW * RH) / 16000);
+    raindrops = Array.from({ length: count }, () => newDrop(true));
+  }
+
+  function newDrop(anywhere) {
+    return {
+      x: Math.random() * RW,
+      y: anywhere ? Math.random() * RH : -20,
+      len: 10 + Math.random() * 22,     // 雨丝长度
+      speed: 0.8 + Math.random() * 1.6, // 下落速度，慢
+      alpha: 0.04 + Math.random() * 0.10, // 透明度极低
+      drift: 0.15 + Math.random() * 0.25  // 微微斜
+    };
+  }
+
+  function drawRain() {
+    rctx.clearRect(0, 0, RW, RH);
+    rctx.lineWidth = 1;
+    rctx.lineCap = 'round';
+
+    for (const d of raindrops) {
+      rctx.strokeStyle = `rgba(190, 205, 225, ${d.alpha})`;
+      rctx.beginPath();
+      rctx.moveTo(d.x, d.y);
+      rctx.lineTo(d.x - d.drift * d.len * 0.4, d.y + d.len);
+      rctx.stroke();
+
+      d.y += d.speed;
+      d.x -= d.drift * d.speed * 0.5;
+
+      if (d.y > RH + 30) {
+        Object.assign(d, newDrop(false));
+        d.x = Math.random() * RW * 1.2; // 从上方重新来
+      }
+      if (d.x < -30) d.x = RW + 30;
+    }
+    requestAnimationFrame(drawRain);
+  }
+
+  initRain();
+  drawRain();
+  window.addEventListener('resize', initRain);
+
+  /* ================= 数字格式化 ================= */
+  function fmt(n) {
+    n = Number(n) || 0;
+    if (n >= 10000) {
+      const w = n / 10000;
+      return (w >= 10 ? w.toFixed(0) : w.toFixed(1).replace('.0','')) + '万';
+    }
+    if (n >= 1000) return n.toLocaleString('en-US');
+    return String(n);
+  }
+
+  /* ================= 点赞 ================= */
+  document.querySelectorAll('.action.like').forEach(el => {
+    el.addEventListener('click', () => {
+      const numEl = el.querySelector('.num');
+      const base  = Number(el.parentElement.dataset.baseLike) || 0;
+      let current = Number(numEl.dataset.raw);
+      if (isNaN(current)) current = base;
+      const liked = el.classList.toggle('liked');
+      current = liked ? current + 1 : current - 1;
+      numEl.dataset.raw = current;
+      numEl.textContent = fmt(current);
+      el.querySelector('.ico').textContent = liked ? '♥' : '♡';
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+    });
+  });
+
+  /* ================= 转发 ================= */
+  document.querySelectorAll('.action.rt').forEach(el => {
+    el.addEventListener('click', () => {
+      const numEl = el.querySelector('.num');
+      const base  = Number(el.parentElement.dataset.baseRt) || 0;
+      let current = Number(numEl.dataset.raw);
+      if (isNaN(current)) current = base;
+      const on = el.classList.toggle('liked');
+      current = on ? current + 1 : current - 1;
+      numEl.dataset.raw = current;
+      numEl.textContent = fmt(current);
+      el.querySelector('.ico').style.color = on ? '#00ba7c' : '';
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+    });
+  });
+
+  /* ================= 评论按钮：聚焦输入框 ================= */
+  document.querySelectorAll('.action.reply').forEach(el => {
+    el.addEventListener('click', () => {
+      document.getElementById('input').focus();
+      document.getElementById('input').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+
+  /* ================= 发布回复 ================= */
+  const input = document.getElementById('input');
+  const send  = document.getElementById('send');
+  const timeline = document.getElementById('timeline');
+
+  input.addEventListener('input', () => {
+    send.disabled = input.value.trim().length === 0;
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !send.disabled) send.click();
+  });
+
+  let replyCount = 0;
+  send.addEventListener('click', () => {
+    const text = input.value.trim();
+    if (!text) return;
+
+    const el = document.createElement('div');
+    el.className = 'tweet reply';
+    el.style.animation = 'fadeUp 1s cubic-bezier(0.16,1,0.3,1) both';
+    el.dataset.baseLike = '0';
+    el.dataset.baseRt = '0';
+    el.dataset.baseReply = '0';
+
+    replyCount++;
+
+    el.innerHTML = `
+      <div class="avatar">
+        <svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#2c3136"/><circle cx="22" cy="17" r="8" fill="#4a5058"/><ellipse cx="22" cy="38" rx="14" ry="10" fill="#4a5058"/></svg>
+      </div>
+      <div class="main">
+        <div class="replying">回复 <span>@ovo</span></div>
+        <div class="head">
+          <span class="name">你</span>
+          <span class="handle">@you</span>
+          <span class="dot">·</span>
+          <span class="time">刚刚</span>
+        </div>
+        <div class="body"></div>
+        <div class="actions">
+          <div class="action reply"><span class="ico">💬</span><span class="num">0</span></div>
+          <div class="action rt"><span class="ico">🔁</span><span class="num">0</span></div>
+          <div class="action like"><span class="ico">♡</span><span class="num">0</span></div>
+        </div>
+      </div>
+    `;
+    el.querySelector('.body').textContent = text;
+
+    const likeEl = el.querySelector('.action.like');
+    likeEl.addEventListener('click', () => {
+      const numEl = likeEl.querySelector('.num');
+      let c = Number(numEl.dataset.raw) || 0;
+      const liked = likeEl.classList.toggle('liked');
+      c = liked ? c + 1 : c - 1;
+      numEl.dataset.raw = c;
+      numEl.textContent = fmt(c);
+      likeEl.querySelector('.ico').textContent = liked ? '♥' : '♡';
+      likeEl.classList.remove('pulse');
+      void likeEl.offsetWidth;
+      likeEl.classList.add('pulse');
+    });
+
+    const rtEl = el.querySelector('.action.rt');
+    rtEl.addEventListener('click', () => {
+      const numEl = rtEl.querySelector('.num');
+      let c = Number(numEl.dataset.raw) || 0;
+      const on = rtEl.classList.toggle('liked');
+      c = on ? c + 1 : c - 1;
+      numEl.dataset.raw = c;
+      numEl.textContent = fmt(c);
+      rtEl.querySelector('.ico').style.color = on ? '#00ba7c' : '';
+      rtEl.classList.remove('pulse');
+      void rtEl.offsetWidth;
+      rtEl.classList.add('pulse');
+    });
+
+    const replyEl = el.querySelector('.action.reply');
+    replyEl.addEventListener('click', () => {
+      input.focus();
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+
+    timeline.appendChild(el);
+    input.value = '';
+    send.disabled = true;
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+</script>
+</body>
+</html>
